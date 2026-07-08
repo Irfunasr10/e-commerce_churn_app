@@ -1,148 +1,218 @@
-import streamlit as st
-import pandas as pd
-import numpy as np
+from pathlib import Path
+
 import joblib
+import pandas as pd
+import streamlit as st
 
-# -----------------------------
-# Page config
-# -----------------------------
-st.set_page_config(page_title="Customer Churn Predictor", page_icon="📉", layout="centered")
 
-# -----------------------------
-# Load model, scaler, columns
-# -----------------------------
-@st.cache_resource
-def load_artifacts():
-    model = joblib.load("Random_Forest.pkl")
-    scaler = joblib.load("scaler.pkl")
-    columns = joblib.load("columns.pkl")
-    return model, scaler, columns
+ARTIFACT_DIR = Path(__file__).resolve().parent
+MODEL_PATH = ARTIFACT_DIR / "Random_Forest.pkl"
+SCALER_PATH = ARTIFACT_DIR / "scaler.pkl"
+COLUMNS_PATH = ARTIFACT_DIR / "columns.pkl"
 
-model, scaler, model_columns = load_artifacts()
-
-# Columns that were scaled with StandardScaler in training
-SCALE_COLS = [
-    'Tenure', 'WarehouseToHome', 'HourSpendOnApp',
-    'OrderAmountHikeFromlastYear', 'CouponUsed',
-    'OrderCount', 'DaySinceLastOrder',
-    'CashbackAmount', 'NumberOfDeviceRegistered',
-    'SatisfactionScore', 'NumberOfAddress'
+NUMERIC_COLUMNS = [
+    "Tenure",
+    "WarehouseToHome",
+    "HourSpendOnApp",
+    "OrderAmountHikeFromlastYear",
+    "CouponUsed",
+    "OrderCount",
+    "DaySinceLastOrder",
+    "CashbackAmount",
+    "NumberOfDeviceRegistered",
+    "SatisfactionScore",
+    "NumberOfAddress",
 ]
 
-st.title("📉 E-Commerce Customer Churn Predictor")
-st.write(
-    "Fill in the customer details below to predict the likelihood of churn "
-    "using a trained Random Forest model."
+
+@st.cache_resource
+def load_artifacts():
+    model = joblib.load(MODEL_PATH)
+    scaler = joblib.load(SCALER_PATH)
+    columns = joblib.load(COLUMNS_PATH)
+    return model, scaler, columns
+
+
+def build_feature_row(values, columns, scaler):
+    row = {column: 0 for column in columns}
+
+    row["Tenure"] = values["tenure"]
+    row["Is_mobile_phone"] = 1 if values["login_device"] == "Mobile Phone" else 0
+    row["WarehouseToHome"] = values["warehouse_to_home"]
+    row["Is_male"] = 1 if values["gender"] == "Male" else 0
+    row["HourSpendOnApp"] = values["hours_on_app"]
+    row["NumberOfDeviceRegistered"] = values["devices_registered"]
+    row["SatisfactionScore"] = values["satisfaction_score"]
+    row["NumberOfAddress"] = values["number_of_addresses"]
+    row["Complain"] = 1 if values["complain"] == "Yes" else 0
+    row["OrderAmountHikeFromlastYear"] = values["order_hike"]
+    row["CouponUsed"] = values["coupons_used"]
+    row["OrderCount"] = values["order_count"]
+    row["DaySinceLastOrder"] = values["days_since_last_order"]
+    row["CashbackAmount"] = values["cashback_amount"]
+
+    categorical_columns = {
+        f"Payment_mode_{values['payment_mode']}": 1,
+        f"Category_{values['category']}": 1,
+        f"MaritalStatus_{values['marital_status']}": 1,
+        f"CityTier_{values['city_tier']}": 1,
+    }
+
+    for column, value in categorical_columns.items():
+        if column in row:
+            row[column] = value
+
+    feature_df = pd.DataFrame([row], columns=columns)
+    feature_df[NUMERIC_COLUMNS] = scaler.transform(feature_df[NUMERIC_COLUMNS])
+
+    return feature_df
+
+
+st.set_page_config(
+    page_title="E-Commerce Churn Predictor",
+    layout="wide"
 )
 
-st.divider()
+model, scaler, columns = load_artifacts()
 
-# -----------------------------
-# Input form
-# -----------------------------
-with st.form("churn_form"):
-    col1, col2 = st.columns(2)
+st.title("E-Commerce Customer Churn Predictor")
+st.write("Enter customer details below to predict whether the customer is likely to churn.")
+
+with st.form("prediction_form"):
+    col1, col2, col3 = st.columns(3)
 
     with col1:
-        tenure = st.number_input("Tenure (months)", min_value=0, max_value=100, value=12)
-        warehouse_to_home = st.number_input("Warehouse To Home (distance)", min_value=0, max_value=200, value=15)
-        hour_spend_on_app = st.number_input("Hours Spend On App", min_value=0.0, max_value=10.0, value=3.0)
-        number_of_device_registered = st.number_input("Number of Devices Registered", min_value=1, max_value=10, value=3)
-        satisfaction_score = st.slider("Satisfaction Score", 1, 5, 3)
-        number_of_address = st.number_input("Number of Addresses", min_value=1, max_value=20, value=2)
-        complain = st.selectbox("Complain Raised?", ["No", "Yes"])
+        tenure = st.number_input("Tenure", min_value=0, max_value=100, value=10)
+        warehouse_to_home = st.number_input(
+            "Warehouse to Home Distance",
+            min_value=0,
+            max_value=200,
+            value=15,
+        )
+        hours_on_app = st.number_input(
+            "Hours Spent on App",
+            min_value=0,
+            max_value=24,
+            value=3,
+        )
+        devices_registered = st.number_input(
+            "Number of Devices Registered",
+            min_value=1,
+            max_value=20,
+            value=3,
+        )
+        number_of_addresses = st.number_input(
+            "Number of Addresses",
+            min_value=1,
+            max_value=30,
+            value=3,
+        )
 
     with col2:
-        order_amount_hike = st.number_input("Order Amount Hike From Last Year (%)", min_value=0, max_value=100, value=15)
-        coupon_used = st.number_input("Coupons Used", min_value=0, max_value=50, value=1)
-        order_count = st.number_input("Order Count", min_value=0, max_value=50, value=2)
-        day_since_last_order = st.number_input("Days Since Last Order", min_value=0, max_value=100, value=5)
-        cashback_amount = st.number_input("Cashback Amount", min_value=0.0, max_value=1000.0, value=150.0)
-
-    st.markdown("##### Categorical Details")
-    col3, col4, col5 = st.columns(3)
+        satisfaction_score = st.select_slider(
+            "Satisfaction Score",
+            options=[1, 2, 3, 4, 5],
+            value=3,
+        )
+        complain = st.radio(
+            "Customer Complained?",
+            ["No", "Yes"],
+            horizontal=True,
+        )
+        order_hike = st.number_input(
+            "Order Amount Hike From Last Year (%)",
+            min_value=0,
+            max_value=100,
+            value=15,
+        )
+        coupons_used = st.number_input(
+            "Coupons Used",
+            min_value=0,
+            max_value=100,
+            value=1,
+        )
+        order_count = st.number_input(
+            "Order Count",
+            min_value=0,
+            max_value=100,
+            value=2,
+        )
+        days_since_last_order = st.number_input(
+            "Days Since Last Order",
+            min_value=0,
+            max_value=365,
+            value=5,
+        )
+        cashback_amount = st.number_input(
+            "Cashback Amount",
+            min_value=0.0,
+            max_value=1000.0,
+            value=150.0,
+        )
 
     with col3:
-        login_device = st.selectbox("Preferred Login Device", ["Mobile Phone", "Computer"])
-        gender = st.selectbox("Gender", ["Male", "Female"])
-
-    with col4:
+        login_device = st.selectbox(
+            "Preferred Login Device",
+            ["Mobile Phone", "Computer"],
+        )
+        gender = st.selectbox(
+            "Gender",
+            ["Female", "Male"],
+        )
         payment_mode = st.selectbox(
             "Preferred Payment Mode",
-            ["Debit Card", "Credit Card", "E wallet", "UPI", "COD"]
+            ["COD", "Credit Card", "Debit Card", "E wallet", "UPI"],
         )
-        marital_status = st.selectbox("Marital Status", ["Single", "Married", "Divorced"])
-
-    with col5:
         category = st.selectbox(
             "Preferred Order Category",
-            ["Laptop & Accessory", "Mobile Phone", "Fashion", "Grocery", "Others"]
+            ["Fashion", "Grocery", "Laptop & Accessory", "Mobile Phone", "Others"],
         )
-        city_tier = st.selectbox("City Tier", [1, 2, 3])
+        marital_status = st.selectbox(
+            "Marital Status",
+            ["Divorced", "Married", "Single"],
+        )
+        city_tier = st.selectbox(
+            "City Tier",
+            [1, 2, 3],
+        )
 
     submitted = st.form_submit_button("Predict Churn")
 
-# -----------------------------
-# Prediction logic
-# -----------------------------
 if submitted:
-    # Build raw input dict matching original (pre-dummy) feature names
-    raw_input = {
-        'Tenure': tenure,
-        'WarehouseToHome': warehouse_to_home,
-        'HourSpendOnApp': hour_spend_on_app,
-        'NumberOfDeviceRegistered': number_of_device_registered,
-        'SatisfactionScore': satisfaction_score,
-        'NumberOfAddress': number_of_address,
-        'Complain': 1 if complain == "Yes" else 0,
-        'OrderAmountHikeFromlastYear': order_amount_hike,
-        'CouponUsed': coupon_used,
-        'OrderCount': order_count,
-        'DaySinceLastOrder': day_since_last_order,
-        'CashbackAmount': cashback_amount,
-        'Is_mobile_phone': 1 if login_device == "Mobile Phone" else 0,
-        'Is_male': 1 if gender == "Male" else 0,
-        'Payment_mode': payment_mode,
-        'Category': category,
-        'MaritalStatus': marital_status,
-        'CityTier': city_tier,
+    values = {
+        "tenure": tenure,
+        "warehouse_to_home": warehouse_to_home,
+        "hours_on_app": hours_on_app,
+        "devices_registered": devices_registered,
+        "number_of_addresses": number_of_addresses,
+        "satisfaction_score": satisfaction_score,
+        "complain": complain,
+        "order_hike": order_hike,
+        "coupons_used": coupons_used,
+        "order_count": order_count,
+        "days_since_last_order": days_since_last_order,
+        "cashback_amount": cashback_amount,
+        "login_device": login_device,
+        "gender": gender,
+        "payment_mode": payment_mode,
+        "category": category,
+        "marital_status": marital_status,
+        "city_tier": city_tier,
     }
 
-    input_df = pd.DataFrame([raw_input])
+    features = build_feature_row(values, columns, scaler)
 
-    # One-hot encode the same categorical columns used in training
-    input_df = pd.get_dummies(
-        input_df, columns=['Payment_mode', 'Category', 'MaritalStatus', 'CityTier']
-    )
+    prediction = model.predict(features)[0]
+    probability = model.predict_proba(features)[0][1]
 
-    # Convert any bool columns to int
-    for c in input_df.columns:
-        if input_df[c].dtype == 'bool':
-            input_df[c] = input_df[c].astype(int)
-
-    # Align with training columns (add missing dummy cols as 0, drop extras, keep order)
-    input_df = input_df.reindex(columns=model_columns, fill_value=0)
-
-    # Apply the same scaler to the numeric columns
-    input_df[SCALE_COLS] = scaler.transform(input_df[SCALE_COLS])
-
-    # Predict
-    prediction = model.predict(input_df)[0]
-    probability = model.predict_proba(input_df)[0][1]
-
-    st.divider()
     st.subheader("Prediction Result")
 
     if prediction == 1:
-        st.error(f"⚠️ This customer is **likely to churn**.")
+        st.error("Customer is likely to churn.")
     else:
-        st.success(f"✅ This customer is **likely to stay**.")
+        st.success("Customer is not likely to churn.")
 
-    st.metric("Churn Probability", f"{probability * 100:.2f}%")
-    st.progress(min(int(probability * 100), 100))
+    st.metric("Churn Probability", f"{probability:.2%}")
 
-    with st.expander("See processed input fed to the model"):
-        st.dataframe(input_df)
-
-st.divider()
-st.caption("Model: Random Forest (GridSearchCV tuned) | Built with Streamlit")
+    with st.expander("View Model Input Data"):
+        st.dataframe(features)
